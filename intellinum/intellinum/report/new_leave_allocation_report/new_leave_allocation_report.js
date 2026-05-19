@@ -9,11 +9,6 @@
 
 
 
-
-
-
-
-
 frappe.query_reports["New Leave Allocation Report"] = {
 
     filters: [
@@ -28,11 +23,12 @@ frappe.query_reports["New Leave Allocation Report"] = {
                 const emp     = (data.employee || "").replace(/'/g, "\\'");
                 const empName = (data.employee_name || "").replace(/'/g, "\\'");
                 const conf    = (data.final_confirmation_date || "");
-                const leaves  = parseInt(data.leave_to_be_allocated) || 0;
+                const leaves  = parseFloat(data.leave_to_be_allocated) || 0;
+                const optLeaves = parseFloat(data.optional_holidays_to_allocate) || 0; // ← Optional Holidays
 
                 return `<button
                     class="btn btn-default btn-xs jb-alloc-btn"
-                    onclick="window._jbAllocate(this,'${emp}','${empName}','${conf}',${leaves})">
+                    onclick="window._jbAllocate(this,'${emp}','${empName}','${conf}',${leaves},${optLeaves})">
                     Allocate
                 </button>`;
             }
@@ -44,18 +40,19 @@ frappe.query_reports["New Leave Allocation Report"] = {
 
     onload: function (report) {
 
-        window._jbAllocate = function (btn, employee, empName, confDate, leaves) {
+        window._jbAllocate = function (btn, employee, empName, confDate, leaves, optLeaves) {
             const yearEnd = frappe.datetime.year_end();
 
             frappe.confirm(
-                `Do you want to allocate ${leaves} Paid Leave(s) to ${empName}?<br>
+                `Do you want to allocate the following leaves to <b>${empName}</b>?<br><br>
+                 &bull; <b>${leaves}</b> Paid Leave(s)<br>
+                 &bull; <b>${optLeaves}</b> Optional Holiday(s)<br><br>
                  <small>From: ${confDate} &nbsp;&rarr;&nbsp; To: ${yearEnd}</small>`,
 
                 function () {
                     const _origMsgprint = frappe.msgprint;
                     frappe.msgprint = () => {};
 
-                    // Disable button immediately to prevent double click
                     $(btn).prop("disabled", true).text("Allocating...");
 
                     frappe.call({
@@ -71,18 +68,17 @@ frappe.query_reports["New Leave Allocation Report"] = {
                             },
                         },
                         freeze        : true,
-                        freeze_message: "Creating Leave Allocation...",
+                        freeze_message: "Creating Paid Leave Allocation...",
                         error_handlers: {
                             OverlapError: function() {
                                 frappe.msgprint = _origMsgprint;
-                                // Already allocated — update row instantly
                                 window._jbUpdateRow(btn);
-                                frappe.show_alert({ message: `Already allocated for ${empName}.`, indicator: "orange" });
+                                frappe.show_alert({ message: `Paid Leave already allocated for ${empName}.`, indicator: "orange" });
                             },
                             OverAllocationError: function() {
                                 frappe.msgprint = _origMsgprint;
                                 $(btn).prop("disabled", false).text("Allocate");
-                                frappe.show_alert({ message: `Exceeds max limit for ${empName}.`, indicator: "red" });
+                                frappe.show_alert({ message: `Paid Leave exceeds max limit for ${empName}.`, indicator: "red" });
                             }
                         },
                         callback: function (r) {
@@ -91,48 +87,93 @@ frappe.query_reports["New Leave Allocation Report"] = {
                                 $(btn).prop("disabled", false).text("Allocate");
                                 return;
                             }
+
                             frappe.call({
                                 method: "frappe.client.submit",
                                 args  : { doc: r.message },
                                 freeze: true,
-                                freeze_message: "Submitting...",
+                                freeze_message: "Submitting Paid Leave...",
                                 callback: function (res) {
-                                    frappe.msgprint = _origMsgprint;
                                     if (res.exc) {
+                                        frappe.msgprint = _origMsgprint;
                                         $(btn).prop("disabled", false).text("Allocate");
-                                        frappe.show_alert({ message: "Submit failed.", indicator: "red" });
+                                        frappe.show_alert({ message: "Paid Leave submit failed.", indicator: "red" });
                                         return;
                                     }
-                                    // ✅ Instantly update row — no page refresh
-                                    window._jbUpdateRow(btn);
-                                    frappe.show_alert({
-                                        message  : `Leave allocated for ${empName}!`,
-                                        indicator: "green",
+
+                                    frappe.call({
+                                        method: "frappe.client.insert",
+                                        args: {
+                                            doc: {
+                                                doctype             : "Leave Allocation",
+                                                employee            : employee,
+                                                leave_type          : "Optional Holiday",
+                                                from_date           : confDate,
+                                                to_date             : yearEnd,
+                                                new_leaves_allocated: optLeaves,
+                                            },
+                                        },
+                                        freeze        : true,
+                                        freeze_message: "Creating Optional Holiday Allocation...",
+                                        error_handlers: {
+                                            OverlapError: function() {
+                                                frappe.msgprint = _origMsgprint;
+                                                window._jbUpdateRow(btn);
+                                                frappe.show_alert({ message: `Optional Holiday already allocated for ${empName}.`, indicator: "orange" });
+                                            },
+                                            OverAllocationError: function() {
+                                                frappe.msgprint = _origMsgprint;
+                                                $(btn).prop("disabled", false).text("Allocate");
+                                                frappe.show_alert({ message: `Optional Holiday exceeds max limit for ${empName}.`, indicator: "red" });
+                                            }
+                                        },
+                                        callback: function (r2) {
+                                            if (r2.exc || !r2.message) {
+                                                frappe.msgprint = _origMsgprint;
+                                                $(btn).prop("disabled", false).text("Allocate");
+                                                return;
+                                            }
+
+                                            frappe.call({
+                                                method: "frappe.client.submit",
+                                                args  : { doc: r2.message },
+                                                freeze: true,
+                                                freeze_message: "Submitting Optional Holiday...",
+                                                callback: function (res2) {
+                                                    frappe.msgprint = _origMsgprint;
+                                                    if (res2.exc) {
+                                                        $(btn).prop("disabled", false).text("Allocate");
+                                                        frappe.show_alert({ message: "Optional Holiday submit failed.", indicator: "red" });
+                                                        return;
+                                                    }
+                                                    window._jbUpdateRow(btn);
+                                                    frappe.show_alert({
+                                                        message  : `Paid Leave & Optional Holiday allocated for ${empName}!`,
+                                                        indicator: "green",
+                                                    });
+                                                },
+                                            });
+                                        },
                                     });
                                 },
                             });
                         },
                     });
                 },
-                // On "No" — re-enable button
                 function() {
                     $(btn).prop("disabled", false).text("Allocate");
                 }
             );
         };
 
-        // Updates Status cell → "Allocated", Action cell → "✓ Done" instantly
         window._jbUpdateRow = function(btn) {
-            const $cell   = $(btn).closest(".dt-cell");
-            const $row    = $cell.closest(".dt-row");
+            const $cell = $(btn).closest(".dt-cell");
+            const $row  = $cell.closest(".dt-row");
 
-            // Update Action cell
             $cell.find(".dt-cell__content").html("&#10003; Done");
 
-            // Find Status cell in same row and update it
             $row.find(".dt-cell").each(function() {
-                const colId = $(this).attr("data-col-index");
-                const text  = $(this).find(".dt-cell__content").text().trim();
+                const text = $(this).find(".dt-cell__content").text().trim();
                 if (text === "Pending") {
                     $(this).find(".dt-cell__content").text("Allocated");
                 }
