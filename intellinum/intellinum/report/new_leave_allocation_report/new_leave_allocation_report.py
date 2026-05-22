@@ -10,6 +10,9 @@
 
 
 
+# Copyright (c) 2026, ibsl and contributors
+# For license information, please see license.txt
+
 import frappe
 from frappe import _
 
@@ -61,7 +64,14 @@ def get_data(filters):
             4.0 AS optional_holidays,
             LEAST(
                 ROUND(
-                    (DATEDIFF(CONCAT(YEAR(CURDATE()), '-12-31'), e.final_confirmation_date) + 1)
+                    (DATEDIFF(
+                        CONCAT(YEAR(CURDATE()), '-12-31'),
+                        CASE
+                            WHEN YEAR(e.date_of_joining) = YEAR(CURDATE())
+                                THEN e.date_of_joining
+                            ELSE CONCAT(YEAR(CURDATE()), '-01-01')
+                        END
+                    ) + 1)
                     / 365.0 * 4,
                     2
                 ),
