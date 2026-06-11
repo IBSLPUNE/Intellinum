@@ -145,6 +145,19 @@ app_license = "mit"
 # 	}
 # }
 
+doc_events = {
+    "Variable Pay Disbursement": {
+        "before_save": "intellinum.intellinum.utils.variable_pay.before_save",
+        "on_submit": "intellinum.intellinum.utils.variable_pay.on_submit",
+        "on_cancel": "intellinum.intellinum.utils.variable_pay.on_cancel",
+    },
+    "Additional Salary": {
+        "before_save": "intellinum.intellinum.utils.financial_year.set_additional_salary_financial_year",
+    },
+    "Salary Slip": {
+        "before_save": "intellinum.intellinum.utils.financial_year.set_salary_slip_financial_year",
+    }
+}
 # Scheduled Tasks
 # ---------------
 
@@ -247,3 +260,9 @@ app_license = "mit"
 # List of apps whose translatable strings should be excluded from this app's translations.
 # ignore_translatable_strings_from = []
 
+fixtures = [
+    "Custom Field",
+    "Property Setter",
+    "Client Script",
+    "Custom HTML Block"
+]
