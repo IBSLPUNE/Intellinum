@@ -1,34 +1,38 @@
-frappe.query_reports["Variable Pay Report"] = {
-	filters: [
-		{
-			fieldname: "company",
-			label: __("Company"),
-			fieldtype: "Link",
-			options: "Company",
-			reqd: 1,
-			default: frappe.defaults.get_user_default("Company")
-		},
-		{
-			fieldname: "payroll_month",
-			label: __("Payroll Month"),
-			fieldtype: "Data",
-			reqd: 1,
-			read_only: 1,
-			default: new Date().toLocaleString("en-US", { month: "short" })
-		},
-		{
-			fieldname: "department",
-			label: __("Department"),
-			fieldtype: "Link",
-			options: "Department"
-		}
-	],
+// Determine if the user has admin-level access for this report
+const isAdminOrHR = frappe.user.has_role("Administrator") || frappe.user.has_role("HR Manager");
 
-	get_datatable_options(options) {
-		return Object.assign(options, {
-			cellHeight: 42
-		});
-	},
+frappe.query_reports["Variable Pay Report"] = {
+    filters: [
+        {
+            fieldname: "company",
+            label: __("Company"),
+            fieldtype: "Link",
+            options: "Company",
+            reqd: 1,
+            default: frappe.defaults.get_user_default("Company")
+        },
+        {
+            fieldname: "payroll_month",
+            label: __("Payroll Month"),
+            fieldtype: "Select", // Changed from Data to Select
+            options: "Jan\nFeb\nMar\nApr\nMay\nJun\nJul\nAug\nSep\nOct\nNov\nDec", // Dropdown options
+            reqd: 1,
+            read_only: isAdminOrHR ? 0 : 1, // Editable for Admins/HR, locked for Reporting Managers
+            default: new Date().toLocaleString("en-US", { month: "short" })
+        },
+        {
+            fieldname: "department",
+            label: __("Department"),
+            fieldtype: "Link",
+            options: "Department"
+        }
+    ],
+
+    get_datatable_options(options) {
+        return Object.assign(options, {
+            cellHeight: 42
+        });
+    },
 
 	formatter(value, row, column, data, default_formatter) {
 		if (!column) return value;

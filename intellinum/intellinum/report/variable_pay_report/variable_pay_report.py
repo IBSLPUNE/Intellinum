@@ -28,6 +28,7 @@ def get_data(filters):
         "`tabEmployee`.status = 'Active'",
         "IFNULL(`tabEmployee`.custom_quarter_variable, 0) > 0",
         "`tabEmployee`.custom_variable_pay_months LIKE %(month_like)s",
+        "(`tabEmployee`.date_of_joining IS NULL OR NOT (YEAR(`tabEmployee`.date_of_joining) = %(current_year)s AND DATE_FORMAT(`tabEmployee`.date_of_joining, '%%b') = %(payroll_month)s))",
     ]
 
     user_roles = frappe.get_roles(frappe.session.user)
