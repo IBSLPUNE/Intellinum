@@ -54,10 +54,6 @@ def before_save(doc, method=None):
     if doc.amended_from and not (doc.override_reason or "").strip():
         frappe.throw("Override Reason is required when amending Variable Pay Disbursement.")
 
-    # Original-submission limit: count only non-amended submitted records
-    if not doc.amended_from and _original_submission_count(doc.employee) >= 4:
-        frappe.throw(f"{doc.employee_name} has already applied 4 times.")
-
 
 def on_submit(doc, method=None):
     existing_ads = frappe.db.get_value(

@@ -26,7 +26,17 @@ def get_data(filters):
 
     conditions = [
         "`tabEmployee`.status = 'Active'",
-        "IFNULL(`tabEmployee`.custom_quarter_variable, 0) > 0",
+        """(
+            (
+                IFNULL(`tabEmployee`.custom_fixed_variable_pay, 0) = 0
+                AND IFNULL(`tabEmployee`.custom_quarter_variable, 0) > 0
+            )
+            OR
+            (
+                IFNULL(`tabEmployee`.custom_fixed_variable_pay, 0) = 1
+                AND IFNULL(`tabEmployee`.custom_variable_amount, 0) > 0
+            )
+        )""",
         "`tabEmployee`.custom_variable_pay_months LIKE %(month_like)s",
         "(`tabEmployee`.date_of_joining IS NULL OR NOT (YEAR(`tabEmployee`.date_of_joining) = %(current_year)s AND DATE_FORMAT(`tabEmployee`.date_of_joining, '%%b') = %(payroll_month)s))",
     ]
@@ -40,8 +50,6 @@ def get_data(filters):
         else:
             conditions.append("1 = 0")
 
-    if filters.get("company"):
-        conditions.append("`tabEmployee`.company = %(company)s")
     if filters.get("department"):
         conditions.append("`tabEmployee`.department = %(department)s")
 
@@ -52,7 +60,11 @@ def get_data(filters):
         SELECT
             `tabEmployee`.name AS employee,
             `tabEmployee`.employee_name AS employee_name,
-            `tabEmployee`.custom_quarter_variable AS quarter_variable,
+            CASE
+                WHEN IFNULL(`tabEmployee`.custom_fixed_variable_pay, 0) = 1
+                THEN IFNULL(`tabEmployee`.custom_variable_amount, 0) / 2
+                ELSE IFNULL(`tabEmployee`.custom_quarter_variable, 0)
+            END AS quarter_variable,
             vpd.name AS vpd_name,
             vpd.percent AS approved_percent,
             vpd.comments AS performance_remark,
@@ -67,16 +79,15 @@ def get_data(filters):
                 SELECT vpd2.name
                 FROM `tabVariable Pay Disbursement` vpd2
                 WHERE vpd2.employee = `tabEmployee`.name
-                  AND YEAR(vpd2.payroll_disburse_date) = %(current_year)s
-                  AND DATE_FORMAT(vpd2.payroll_disburse_date, '%%b') = %(payroll_month)s
-                  AND vpd2.docstatus = 1
+                AND YEAR(vpd2.payroll_disburse_date) = %(current_year)s
+                AND DATE_FORMAT(vpd2.payroll_disburse_date, '%%b') = %(payroll_month)s
+                AND vpd2.docstatus = 1
                 ORDER BY vpd2.creation DESC
                 LIMIT 1
             )
         WHERE {" AND ".join(conditions)}
         ORDER BY `tabEmployee`.name
     """
-
     rows = frappe.db.sql(sql, filters, as_dict=True)
 
     data = []
@@ -106,7 +117,7 @@ def get_data(filters):
 
 
 @frappe.whitelist()
-def process_single_approval(employee, percentage, performance_remark, company=None, payroll_month=None):
+def process_single_approval(employee, percentage, performance_remark, payroll_month=None):
     if not employee:
         frappe.throw("Employee is required.")
 
@@ -123,15 +134,20 @@ def process_single_approval(employee, percentage, performance_remark, company=No
 
     emp = frappe.get_doc("Employee", employee)
 
+    is_fixed = int(emp.get("custom_fixed_variable_pay") or 0) == 1
     quarter_variable = float(emp.get("custom_quarter_variable") or 0)
     variable_full_year = float(emp.get("custom_variable_amount") or 0)
 
-    if quarter_variable <= 0:
-        frappe.throw("Quarter Variable is not configured in Employee master.")
-
-    if variable_full_year <= 0:
-        variable_full_year = quarter_variable * 4
-
+    if is_fixed:
+        if variable_full_year <= 0:
+            frappe.throw("Variable Amount is not configured in Employee master.")
+        quarter_variable = variable_full_year / 2
+    else:
+        if quarter_variable <= 0:
+            frappe.throw("Quarter Variable is not configured in Employee master.")
+        if variable_full_year <= 0:
+            variable_full_year = quarter_variable * 4
+            
     month_name = payroll_month or MONTH_NAMES[getdate().month - 1]
 
     try:

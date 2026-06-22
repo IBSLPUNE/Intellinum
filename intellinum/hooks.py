@@ -156,6 +156,11 @@ doc_events = {
     },
     "Salary Slip": {
         "before_save": "intellinum.intellinum.utils.financial_year.set_salary_slip_financial_year",
+    },
+    "Midmonth Arrear": {
+        "validate": "intellinum.intellinum.utils.midmonth_arrear.validate",
+        "on_submit": "intellinum.intellinum.utils.midmonth_arrear.on_submit",
+        "on_cancel": "intellinum.intellinum.utils.midmonth_arrear.on_cancel",
     }
 }
 # Scheduled Tasks
