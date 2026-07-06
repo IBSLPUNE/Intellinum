@@ -79,7 +79,7 @@ def _get_ctc_from_ssa(ssa_name):
 def _calculate_breakup(ctc):
     monthly_ctc = flt(ctc) / 12
     basic = monthly_ctc * 0.4
-    hra = (basic * 0.5) + 0.5
+    hra = (basic * 0.5)
 
     common_deductions = (
         basic
@@ -198,7 +198,6 @@ def _compute_arrear_amounts(process_date, employee, old_map, new_map):
         "total_arrear": round(total_arrear, 2),
     }
 
-
 def validate(doc, method=None):
     if not doc.employee:
         frappe.throw("Employee is required.")
@@ -218,21 +217,21 @@ def validate(doc, method=None):
         frappe.throw(f"Effective Increment Date is not set for {employee_name}.")
 
     effective_date = getdate(effective_date)
-    arrear_effective_date = _shift_year(effective_date, 1)
 
     doc.employee_name = employee_name
     if doc.meta.has_field("company") and company:
         doc.company = company
 
+    # Keep the actual increment date
     doc.effective_increment_date = effective_date
-    doc.from_date = arrear_effective_date
-    doc.to_date = get_last_day(arrear_effective_date)
+    doc.from_date = effective_date
+    doc.to_date = get_last_day(effective_date)
 
     existing = frappe.get_all(
         "Midmonth Arrear",
         filters={
             "employee": doc.employee,
-            "from_date": arrear_effective_date,
+            "from_date": effective_date,
             "docstatus": ["!=", 2],
         },
         fields=["name"],
@@ -240,45 +239,35 @@ def validate(doc, method=None):
     )
 
     if existing and existing[0].name != doc.name:
-        frappe.throw(
-            f"Midmonth Arrear already exists for {employee_name} on {arrear_effective_date}."
-        )
+        frappe.throw(f"Midmonth Arrear already exists for {employee_name} on {effective_date}.")
 
-    old_ssa = _get_applicable_ssa(doc.employee, arrear_effective_date, mode="previous")
-    new_ssa = _get_applicable_ssa(doc.employee, arrear_effective_date, mode="next")
+    old_ssa = _get_applicable_ssa(doc.employee, effective_date, mode="previous")
+    new_ssa = _get_applicable_ssa(doc.employee, effective_date, mode="next")
 
     if not old_ssa:
-        frappe.throw(
-            f"No previous Salary Structure Assignment found for {employee_name} before {arrear_effective_date}."
-        )
+        frappe.throw(f"No previous Salary Structure Assignment found for {employee_name} before {effective_date}.")
 
     if not new_ssa:
-        frappe.throw(
-            f"No Salary Structure Assignment found for {employee_name} effective on or after {arrear_effective_date}."
-        )
+        frappe.throw(f"No Salary Structure Assignment found for {employee_name} effective on or after {effective_date}.")
 
     old_ctc = _get_ctc_from_ssa(old_ssa)
     new_ctc = _get_ctc_from_ssa(new_ssa)
 
     if flt(new_ctc) <= flt(old_ctc):
-        frappe.throw(
-            f"New CTC must be greater than old CTC for {employee_name}."
-        )
+        frappe.throw(f"New CTC must be greater than old CTC for {employee_name}.")
 
     old_map = _calculate_breakup(old_ctc)
     new_map = _calculate_breakup(new_ctc)
 
     computed = _compute_arrear_amounts(
-        arrear_effective_date,
+        effective_date,
         doc.employee,
         old_map,
         new_map,
     )
 
     if not computed["component_rows"]:
-        frappe.throw(
-            f"No positive arrear found for {employee_name}. Check the salary structure assignments."
-        )
+        frappe.throw(f"No positive arrear found for {employee_name}. Check the salary structure assignments.")
 
     doc.monthly_old_gross_salary = round(sum(old_map.values()) + FIXED_ALLOWANCES, 2)
     doc.monthly_new_gross_salary = round(sum(new_map.values()) + FIXED_ALLOWANCES, 2)
@@ -286,7 +275,6 @@ def validate(doc, method=None):
     if computed["days_in_month"]:
         if doc.meta.has_field("per_day_old"):
             doc.per_day_old = round(doc.monthly_old_gross_salary / computed["days_in_month"], 2)
-
         if doc.meta.has_field("per_day_new"):
             doc.per_day_new = round(doc.monthly_new_gross_salary / computed["days_in_month"], 2)
 
@@ -301,10 +289,7 @@ def validate(doc, method=None):
         doc.effective_new_days = computed["effective_new_days"]
 
     if flt(doc.additional_arrear) <= 0:
-        frappe.throw(
-            f"Arrear amount is zero or negative for {employee_name}. Check the salary values and effective increment date."
-        )
-
+        frappe.throw(f"Arrear amount is zero or negative for {employee_name}. Check the salary values and effective increment date.")
 
 def on_submit(doc, method=None):
     emp = _get_employee(doc.employee)
@@ -331,12 +316,16 @@ def on_submit(doc, method=None):
     ads_meta = frappe.get_meta("Additional Salary")
     created_ads = []
 
+    # Use the payroll date you want the arrear to appear in
+    payroll_date = doc.to_date
+
     for row in computed["component_rows"]:
         component = row["salary_component"]
 
         existing_ads = frappe.db.get_value(
             "Additional Salary",
             {
+                "employee": doc.employee,
                 "custom_midmonth_arrear": doc.name,
                 "salary_component": component,
                 "docstatus": ["!=", 2],
@@ -359,7 +348,7 @@ def on_submit(doc, method=None):
             ads_data["employee_name"] = doc.employee_name
 
         if ads_meta.has_field("payroll_date"):
-            ads_data["payroll_date"] = doc.from_date
+            ads_data["payroll_date"] = payroll_date
 
         if ads_meta.has_field("type"):
             ads_data["type"] = "Earning"
@@ -377,18 +366,17 @@ def on_submit(doc, method=None):
 
     if created_ads and doc.meta.has_field("additional_salary"):
         frappe.db.set_value(doc.doctype, doc.name, "additional_salary", created_ads[0])
-
-
+    
 def on_cancel(doc, method=None):
     ads_list = frappe.get_all(
         "Additional Salary",
         filters={
+            "employee": doc.employee,
             "custom_midmonth_arrear": doc.name,
             "docstatus": 1,
         },
         fields=["name"],
     )
-
     for row in ads_list:
         ads = frappe.get_doc("Additional Salary", row.name)
         if ads.docstatus == 1:
